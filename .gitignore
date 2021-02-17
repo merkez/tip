@@ -144,3 +144,9 @@ data/users/*.xlsx
 
 data/*.csv
 data/users/*.csv
+data/*.xlsx
+data/all/*.csv
+data/all/*.xlsx
+data/users/*.xlsx
+output/*.csv
+output/*.xlsx
