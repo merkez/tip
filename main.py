@@ -20,7 +20,6 @@ columns = ['Albümin/Kreatinin (Spot idrar)', 'Demir (Serum/Plazma)',
 		   'UIBC']
 
 
-# 'Kreatinin (Spot idrar)',
 
 def clean_invalid_chars(s):
 	"""
@@ -178,13 +177,24 @@ def create_sep_files(columns, files):
 			df = format_values(user_data)
 			df = df.rename(columns={'Test Adı': 'Isim Soyisim'}, index={'Sonuç': filename.split(xlsx_suffix)[0]})
 			try:
-				if not os.path.isfile('./output/{}.csv'.format(c[:2])):
-					df[c].to_csv('./output/{}.csv'.format(c[:2]), header=c, encoding='utf-8-sig')
-				else:  # else it exists so append without writing the header
-					df[c].to_csv('./output/{}.csv'.format(c[:2]), mode='a', header=False, encoding='utf-8-sig')
+				data = df[c]
+				write_to_csv(data, c)
 			except KeyError:
+				data[c] = 'Nan'
 				print('KeyError: {} does not exist in the table.'.format(c))
 				continue
+
+
+def write_to_csv(data, c):
+	"""
+
+	:param data:
+	:param c:
+	"""
+	if not os.path.isfile('./output/{}.csv'.format(c.replace('/','_'))):
+		data.to_csv('./output/{}.csv'.format(c.replace('/','_')), header=c, encoding='utf-8-sig')
+	else:  # else it exists so append without writing the header
+		data.to_csv('./output/{}.csv'.format(c.replace('/','_')), mode='a', header=False, encoding='utf-8-sig')
 
 
 def csv_to_xlsx(csv_dir):
@@ -205,15 +215,44 @@ def csv_to_xlsx(csv_dir):
 
 def remove_csv_files(dir):
 	"""
-
 	:param dir:
 	"""
 	for csvfile in glob.glob(os.path.join(dir, '*.csv')):
 		os.remove(csvfile)
 
 
+# def append_test_name():
+
 if __name__ == '__main__':
-	files = get_file_names(users_dir)
-	create_sep_files(columns, files)
-	csv_to_xlsx(output_dir)
-	remove_csv_files(output_dir)
+	files = get_file_names(output_dir)
+	# create_sep_files(columns,files)
+	# csv_to_xlsx('./output')
+	# remove_csv_files('./output')
+	# files = get_file_names(output_dir)
+	data_frames = []
+	for f in files:
+		chunks = f.split('/')
+		filename = chunks[2]
+		try:
+			user_data = pd.read_excel(f)
+			u = user_data.reset_index()
+			u.set_index('level_0', inplace=True)
+
+			l = len(u.columns)
+
+			liste = [filename.split('.xlsx')[0].replace('_','/') for x in range(l)]
+			u.columns = liste
+		except ValueError:
+			pass
+		except Exception:
+			pass
+		data_frames.append(u)
+
+	# frame = pd.DataFrame()
+	# result = frame.append(data_frames)
+	# main_frame= pd.concat([df.stack() for df in data_frames], axis=0).unstack()
+	main_frame = pd.concat( data_frames,axis=1 ,sort=False)
+	main_frame.to_excel('./output/all.xlsx')
+	# create_sep_files(columns, files)
+	# csv_to_xlsx(output_dir)
+	# remove_csv_files(output_dir)
