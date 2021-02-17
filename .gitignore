@@ -138,5 +138,9 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+# do not include any data
 data/*.xlsx
-data/users/*
+data/users/*.xlsx
+
+data/*.csv
+data/users/*.csv
