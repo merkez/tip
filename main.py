@@ -1,19 +1,26 @@
 import pandas as pd
 import os
+import glob
+import csv
+from xlsxwriter.workbook import Workbook
 
 cwd = os.getcwd()
-users = pd.read_excel('./data/users.xlsx')
-users_dir = os.getcwd() + '/data/users'
+users_dir = os.getcwd() + '/data/all'
 data_file = 'all_data.xlsx'
-suffix = '.xlsx'
+xlsx_suffix = '.xlsx'
+csv_suffix = '.csv'
+output_dir = './output'
+chunksize = 50000
 
 columns = ['Albümin/Kreatinin (Spot idrar)', 'Demir (Serum/Plazma)',
 		   'Ferritin (Serum/Plazma)',
 		   'Glike hemoglobin (Hb A1c) (HPLC)', 'HbA1C',
 		   'Hemoglobin (HGB) (Hemogram(Tam Kan))',
-		   'Kreatinin (Kreatinin (Serum/Plazma))', 'Kreatinin (Spot idrar)',
+		   'Kreatinin (Kreatinin (Serum/Plazma))',
 		   'UIBC']
 
+
+# 'Kreatinin (Spot idrar)',
 
 def clean_invalid_chars(s):
 	"""
@@ -42,7 +49,7 @@ def get_file_names(directory):
 	"""
 	files_to_read = []
 	for filename in os.listdir(directory):
-		if filename.endswith(suffix):
+		if filename.endswith(xlsx_suffix):
 			files_to_read.append(os.path.join(directory, filename))
 		else:
 			continue
@@ -74,23 +81,139 @@ def get_average(df):
 	df_mean = df.groupby('Test Adı', as_index=True).mean()
 	d = df_mean.T
 	user_value = d[d.columns.intersection(columns)]
-	f = user_value.rename(columns={'Test Adı': 'Isim Soyisim'}, index={'Sonuç': filename.split(suffix)[0]})
+	f = user_value.rename(columns={'Test Adı': 'Isim Soyisim'}, index={'Sonuç': filename.split(xlsx_suffix)[0]})
 	return f
+
+
+def format_values(df, columns=columns):
+	"""
+	:param df:
+	:param columns:
+	"""
+	df = df[['Test Adı', 'Sonuç']]
+	df.set_index('Test Adı', inplace=True)
+	nd = df.T
+	# user_value = nd[nd.columns.intersection(columns)]
+	return nd
+
+
+def append_df_to_excel(filename, df, sheet_name='Sheet1', startrow=None,
+					   truncate_sheet=False,
+					   **to_excel_kwargs):
+	"""
+    Append a DataFrame [df] to existing Excel file [filename]
+    into [sheet_name] Sheet.
+    If [filename] doesn't exist, then this function will create it.
+
+    Parameters:
+      filename : File path or existing ExcelWriter
+                 (Example: '/path/to/file.xlsx')
+      df : dataframe to save to workbook
+      sheet_name : Name of sheet which will contain DataFrame.
+                   (default: 'Sheet1')
+      startrow : upper left cell row to dump data frame.
+                 Per default (startrow=None) calculate the last row
+                 in the existing DF and write to the next row...
+      truncate_sheet : truncate (remove and recreate) [sheet_name]
+                       before writing DataFrame to Excel file
+      to_excel_kwargs : arguments which will be passed to `DataFrame.to_excel()`
+                        [can be dictionary]
+
+    Returns: None
+    """
+	from openpyxl import load_workbook
+
+	# ignore [engine] parameter if it was passed
+	if 'engine' in to_excel_kwargs:
+		to_excel_kwargs.pop('engine')
+
+	writer = pd.ExcelWriter(filename, engine='openpyxl')
+
+	try:
+		# try to open an existing workbook
+		writer.book = load_workbook(filename)
+
+		# get the last row in the existing Excel sheet
+		# if it was not specified explicitly
+		if startrow is None and sheet_name in writer.book.sheetnames:
+			startrow = writer.book[sheet_name].max_row
+
+		# truncate sheet
+		if truncate_sheet and sheet_name in writer.book.sheetnames:
+			# index of [sheet_name] sheet
+			idx = writer.book.sheetnames.index(sheet_name)
+			# remove [sheet_name]
+			writer.book.remove(writer.book.worksheets[idx])
+			# create an empty sheet [sheet_name] using old index
+			writer.book.create_sheet(sheet_name, idx)
+
+		# copy existing sheets
+		writer.sheets = {ws.title: ws for ws in writer.book.worksheets}
+	except FileNotFoundError:
+		# file does not exist yet, we will create it
+		pass
+
+	if startrow is None:
+		startrow = 0
+
+	# write out the new sheet
+	df.to_excel(writer, sheet_name, startrow=startrow, **to_excel_kwargs)
+
+	# save the workbook
+	writer.save()
+
+
+def create_sep_files(columns, files):
+	for c in columns:
+		for f in files:
+			chunks = f.split('/')
+			filename = chunks[7]
+			try:
+				user_data = pd.read_excel(f)
+			except ValueError:
+				pass
+			except Exception:
+				pass
+			df = clean_dataframe(user_data)
+			df = format_values(user_data)
+			df = df.rename(columns={'Test Adı': 'Isim Soyisim'}, index={'Sonuç': filename.split(xlsx_suffix)[0]})
+			try:
+				if not os.path.isfile('./output/{}.csv'.format(c[:2])):
+					df[c].to_csv('./output/{}.csv'.format(c[:2]), header=c, encoding='utf-8-sig')
+				else:  # else it exists so append without writing the header
+					df[c].to_csv('./output/{}.csv'.format(c[:2]), mode='a', header=False, encoding='utf-8-sig')
+			except KeyError:
+				print('KeyError: {} does not exist in the table.'.format(c))
+				continue
+
+
+def csv_to_xlsx(csv_dir):
+	"""
+
+	:param csv_dir:
+	"""
+	for csvfile in glob.glob(os.path.join(csv_dir, '*.csv')):
+		workbook = Workbook(csvfile[:-4] + '.xlsx')
+		worksheet = workbook.add_worksheet()
+		with open(csvfile, 'rt', encoding='utf8') as f:
+			reader = csv.reader(f)
+			for r, row in enumerate(reader):
+				for c, col in enumerate(row):
+					worksheet.write(r, c, col)
+		workbook.close()
+
+
+def remove_csv_files(dir):
+	"""
+
+	:param dir:
+	"""
+	for csvfile in glob.glob(os.path.join(dir, '*.csv')):
+		os.remove(csvfile)
 
 
 if __name__ == '__main__':
 	files = get_file_names(users_dir)
-	data_frames = []
-
-	for d in files:
-		chunks = d.split('/')
-		filename = chunks[7]
-		user_data = pd.read_excel(d)
-		f = clean_dataframe(user_data)
-		f = get_average(f)
-		data_frames.append(f)
-
-	main_frame = pd.concat(data_frames)
-	print(main_frame)
-	main_frame.to_excel(data_file)
-
+	create_sep_files(columns, files)
+	csv_to_xlsx(output_dir)
+	remove_csv_files(output_dir)
